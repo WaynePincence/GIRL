@@ -2,7 +2,7 @@
 A closed-loop prompt refinement workflow (Generate → Identify → Refine → Loop) for faithful and flexible AI image generation.
 
 ## GIRL: Generate → Identify → Refine → Loop  
-*A Closed-Loop Prompt Refinement Workflow for Image Generation in ComfyUI*  
+*A Closed-Loop Prompt Refinement Workflow for Image Generation*  
 
 ---
 
@@ -18,7 +18,7 @@ It leverages both a **Vision-Language Model (VLM)** and a **Large Language Model
 This approach is inspired by **Test-time Prompt Refinement (TIR)** and **RefineEdit-Agent**, but is designed to be:  
 - **Lightweight**  
 - **JSON-driven**  
-- **Directly implementable in ComfyUI**  
+- **Directly implementable in node-based workflows (e.g., ComfyUI)**  
 
 ---
 
@@ -26,44 +26,45 @@ This approach is inspired by **Test-time Prompt Refinement (TIR)** and **RefineE
 - Novice prompters often give **ambiguous or underspecified prompts**.  
 - Image models silently **assume details** (e.g., “dog = retriever, park = daylight”), which may not match intent.  
 - Trial-and-error corrections require prompting expertise.  
+- Negative intent (things the user **doesn’t want**) is often overlooked until too late.  
 
 ---
 
 ## The GIRL Solution: Closed-Loop Prompt Refinement  
-GIRL ensures that generated outputs **stay faithful to the original prompt** while letting users control how much creativity is introduced.  
+GIRL ensures that generated outputs **stay faithful to both positive and negative prompts** while letting users control how much creativity is introduced.  
 
 ### Steps in GIRL:  
-- **Generate** → Image from current prompt.  
-- **Identify** → VLM + Analyst find mismatches (errors) and optional refinements.  
+- **Generate** → Image from current prompt + goal negative prompt.  
+- **Identify** → VLM + Analyst find mismatches (errors), violations of the negative prompt, and optional refinements.  
 - **Refine** → Director updates positive/negative prompts.  
 - **Loop** → Continue until aligned or user stops.  
 
 ---
-🔄 Main GIRL Workflow
+
+### Main GIRL Workflow
 ```mermaid
 flowchart TD
-    A["Goal Prompt + User Strictness"] --> B["Generation Node"]
+    A["Goal Prompt + Goal Negative Prompt + User Strictness"] --> B["Generation Node"]
     B --> H[Iteration Counter ++]
     H --> I{Iteration < Max Iterations?}
     I -- "Yes" --> C["Description Node (VLM)"]
     I -- "No (Max Reached)" --> G["Final Output"]
     C --> D["Analysis Node (LLM Analyst)"]
-    D --> E{Any Errors or Improvements?}
+    D --> E{Any Errors, Neg Violations, or Improvements?}
     E -- "Yes" --> F["Refinement Node (LLM Director)"]
     F -- "Refine" --> B
     E -- "No" --> G
 ```
-
-🎚️ Strictness Influence on Refinement
+### Strictness Influence on Refinement
 ```mermaid
 flowchart TD
     subgraph "Strictness Control"
         C["Strictness = 1.0 (Strict Mode)"]
-        D["Apply Errors Only"]
+        D["Apply Errors + Neg Violations Only"]
         E["Strictness = 0.5 (Balanced Mode)"]
-        F["Apply Errors + Some Improvements"]
+        F["Apply Errors + Neg Violations + Some Improvements"]
         G["Strictness = 0.0 (Creative Mode)"]
-        H["Apply Errors + All Improvements"]
+        H["Apply Errors + Neg Violations + All Improvements"]
         C --> D
         E --> F
         G --> H
@@ -77,56 +78,83 @@ flowchart TD
     F --> I
     H --> I
     I --> J["Next Iteration or Final Output"]
-
 ```
+
 ---
 
-## Ambiguity Handling in GIRL  
+### Ambiguity & Negatives in GIRL
 
-Unlike one-shot prompting, GIRL **does not invent missing details** unless the user explicitly allows it.  
+Unlike one-shot prompting, GIRL does not invent missing details unless the user explicitly allows it. It also protects against undesired outputs by enforcing a goal negative prompt across all iterations.
 
-- **Errors** → Always fixed (faithfulness to prompt).  
-- **Improvements** → Only applied if the user’s strictness allows.
+Errors → Always fixed (faithfulness to prompt).
+
+Negative Prompt Violations → Always fixed immediately.
+
+Improvements → Only applied if the user’s strictness allows.
 
 
-### Example A: Dog in a Park  
 
-**Goal Prompt:**
+---
 
+## Examples
+
+### Example A: Dog in a Park
+
+Goal Prompt:
 "A boy with a dog in a park"
 
-- **Strict Mode (strictness = 1.0)** → System only ensures “boy + dog + park.” No assumptions.  
-- **Balanced Mode (strictness = 0.5)** → Might add “surreal contrast between boy and dog.”  
-- **Creative Mode (strictness = 0.0)** → Could add “sunset atmosphere” or “make the dog a retriever.”  
+Goal Negative Prompt:
+"no extra people, no text, no logos"
 
-✅ The user, not the model, decides how far refinements may go.  
+Strict Mode (1.0) → Ensures only “boy + dog + park,” removes any extra people if detected.
+
+Balanced Mode (0.5) → Might add “surreal contrast between boy and dog.”
+
+Creative Mode (0.0) → Could add “sunset atmosphere” or “make the dog a retriever.”
+
+
+The user decides how far refinements may go, but negatives are always respected.
+
 
 ---
 
-### Example B: Apple Reflection  
+### Example B: Apple Reflection
 
-**Goal Prompt:**
-
+Goal Prompt:
 "A single red apple reflected in both a still pond and a broken mirror"
 
-- **Iteration 1 Output** → Reflection is wavy.  
-  - Error detected: “Expected still pond.”  
-- **Iteration 2 Output** → Still pond achieved. No errors.  
-  - Improvements suggested: “cinematic lighting,” “emphasize surreal contrast.”  
+Goal Negative Prompt:
+"no multiple apples, no text, no surreal creatures"
 
-- With **strictness = 1.0** → Only errors fixed. Final = plain apple.  
-- With **strictness = 0.5** → Adds surreal contrast.  
-- With **strictness = 0.0** → Adds both surreal contrast + cinematic lighting.  
+Iteration 1 Output → Reflection is wavy.
+
+Error detected: “Expected still pond.”
+
+
+Iteration 2 Output → Still pond achieved. No errors.
+
+Improvements suggested: “cinematic lighting,” “emphasize surreal contrast.”
+
+Negative check: No violations.
+
+
+With strictness = 1.0 → Only errors fixed, negatives enforced. Final = plain apple.
+
+With strictness = 0.5 → Adds surreal contrast.
+
+With strictness = 0.0 → Adds both surreal contrast + cinematic lighting.
+
+
 
 ---
 
-## Unified JSON Schema  
-
+## Unified JSON Schema
 ```json
 {
   "goal_prompt": "string",
+  "goal_negative_prompt": "string",
   "refinement_control": {
-    "strictness": 0.8,               // User-chosen, 0.0 = creative, 1.0 = strict
+    "strictness": 0.8,               
     "apply_improvements": true,
     "apply_errors": true
   },
@@ -142,17 +170,13 @@ Unlike one-shot prompting, GIRL **does not invent missing details** unless the u
     "generated_description": "string",
     "analysis": {
       "errors": [
-        {
-          "field": "string",
-          "issue": "string",
-          "expected": "string"
-        }
+        { "field": "string", "issue": "string", "expected": "string" }
+      ],
+      "negative_violations": [
+        { "violation": "string", "detected": true }
       ],
       "improvements": [
-        {
-          "field": "string",
-          "suggestion": "string"
-        }
+        { "field": "string", "suggestion": "string" }
       ]
     },
     "status": {
@@ -160,38 +184,21 @@ Unlike one-shot prompting, GIRL **does not invent missing details** unless the u
       "complete": false
     }
   },
-  "history": [
-    {
-      "iteration": 1,
-      "positive_prompt": "string",
-      "errors": 1
-    }
-  ],
-  "future_extensions": {
-    "multi_goal_support": [ { "sub_goal": "string", "status": "pending|done" } ],
-    "style_critics": [ { "critic": "name", "feedback": "string" } ],
-    "metrics": {
-      "alignment_score": "float",
-      "aesthetic_score": "float",
-      "clip_score": "float"
-    },
-    "user_overrides": [ { "iteration": 2, "override": "force nighttime setting" } ]
-  }
+  "history": []
 }
 ```
 ---
 
 ## Comparison to Related Work
-## 7. Comparison to Related Work  
 
-| Framework / Tool            | Similarities                                    | Differences from GIRL                                |
-|-----------------------------|------------------------------------------------|-----------------------------------------------------|
-| **TIR (Test-time Prompt Refinement)** | Iterative correction loop, uses multimodal analysis. | Academic prototype only; GIRL is JSON-driven, modular, and user-controllable. |
-| **RefineEdit-Agent**        | Multi-agent closed-loop refinement (LLM + VLM). | Focused on fine-grained editing; GIRL targets whole-prompt alignment and ambiguity handling. |
-| **ComfyGen / Prompt-Master** | Use LLMs for automatic prompt generation/refinement. | No image-based evaluation or closed feedback loop. |
-
+| Framework / Tool | Similarities | Differences |
+|---|---|---|
+| TIR (Test-time Prompt Refinement) | Iterative correction loop with multimodal analysis. | Academic prototype only; GIRL is JSON-driven, modular, and user-controllable. |
+| RefineEdit-Agent | Multi-agent closed-loop refinement (LLM + VLM). | Focused on fine-grained editing; GIRL targets whole-prompt alignment, with strictness + negatives. |
+| ComfyGen / Prompt-Master | Use LLMs for automatic prompt generation/refinement. | No image-based evaluation, negative enforcement, or iterative feedback loop. |
 
 ---
+
 ## Future Directions
 
 - Metrics Integration (CLIP, aesthetics).
@@ -199,22 +206,22 @@ Unlike one-shot prompting, GIRL **does not invent missing details** unless the u
 - Specialized critics for style realism, surrealism, etc.
 - Two-tier history (recent detailed, older summarized).
 - Human-in-the-loop overrides.
-
 ---
-## Summary
+
+Summary
 
 GIRL (Generate → Identify → Refine → Loop) is a closed-loop prompt refinement framework for AI image generation.
 
-Faithful → Always satisfies the original prompt.
+Faithful → Always satisfies both positive and negative goals.
 
 Flexible → User strictness controls how much creativity is applied.
 
 Transparent → JSON structure tracks every iteration, making debugging and extension easy.
 
-Practical → Designed for ComfyUI node chains, but general enough for any modular pipeline.
+Practical → Designed for modular node workflows, adaptable beyond ComfyUI.
 
 
-With GIRL, novice prompters get reliable results, and experts get fine-tuned control over the balance between faithfulness and creativity.
+With GIRL, novice prompters get reliable results, and experts get fine-tuned control over the balance between faithfulness and creativity — while ensuring undesired outputs never sneak in.
 
 
 ---
