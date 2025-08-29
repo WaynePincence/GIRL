@@ -1,0 +1,106 @@
+{
+  "nodes": [
+    {
+      "id": "input_goal",
+      "type": "TextInputNode",
+      "label": "Goal Prompt",
+      "value": ""
+    },
+    {
+      "id": "input_negative",
+      "type": "TextInputNode",
+      "label": "Goal Negative Prompt",
+      "value": ""
+    },
+    {
+      "id": "input_strictness",
+      "type": "FloatSliderNode",
+      "label": "Strictness",
+      "min": 0.0,
+      "max": 1.0,
+      "value": 0.8
+    },
+    {
+      "id": "input_max_iters",
+      "type": "IntegerInputNode",
+      "label": "Max Iterations",
+      "value": 5
+    },
+    {
+      "id": "generation_node",
+      "type": "ImageGenerationNode",
+      "model": "StableDiffusion",
+      "inputs": {
+        "positive_prompt": "input_goal",
+        "negative_prompt": "input_negative"
+      },
+      "outputs": ["generated_image"]
+    },
+    {
+      "id": "description_node",
+      "type": "ScriptNode",
+      "label": "VLM Description (Stub)",
+      "script": "def vlm_api_call(image_path):\n    # Replace with actual VLM call (BLIP/CLIP/etc.)\n    return 'A generated description of the image.'\n\ngenerated_description = vlm_api_call(generated_image)",
+      "inputs": ["generated_image"],
+      "outputs": ["generated_description"]
+    },
+    {
+      "id": "analysis_node",
+      "type": "ScriptNode",
+      "label": "LLM Analyst (Stub)",
+      "script": "def llm_api_call(goal, neg_goal, description, strictness):\n    # Replace with actual LLM call\n    return {\n        'errors': [],\n        'negative_violations': [],\n        'improvements': []\n    }\n\nanalysis = llm_api_call(input_goal, input_negative, description_node.outputs.generated_description, input_strictness)",
+      "inputs": ["input_goal", "input_negative", "description_node.outputs.generated_description", "input_strictness"],
+      "outputs": ["analysis"]
+    },
+    {
+      "id": "refinement_node",
+      "type": "ScriptNode",
+      "label": "LLM Director (Stub)",
+      "script": "def llm_refine_api_call(analysis, pos_prompt, neg_prompt, strictness):\n    # Replace with actual LLM refinement logic\n    new_pos = pos_prompt + ' [refined]'\n    new_neg = neg_prompt + ' [refined]'\n    return new_pos, new_neg\n\npositive_prompt, negative_prompt = llm_refine_api_call(analysis, generation_node.inputs.positive_prompt, generation_node.inputs.negative_prompt, input_strictness)",
+      "inputs": ["analysis", "generation_node.inputs.positive_prompt", "generation_node.inputs.negative_prompt", "input_strictness"],
+      "outputs": ["positive_prompt", "negative_prompt"]
+    },
+    {
+      "id": "session_save_node",
+      "type": "ScriptNode",
+      "label": "Session JSON Save",
+      "script": "import json, os, uuid, datetime\n\nsession_file = 'girl_session.json'\n\n# Initialize session if not exists\nif not os.path.exists(session_file):\n    session_json = {\n        'goal_prompt': input_goal,\n        'goal_negative_prompt': input_negative,\n        'refinement_control': {'strictness': input_strictness, 'apply_improvements': True, 'apply_errors': True},\n        'metadata': {'session_id': str(uuid.uuid4()), 'created_at': str(datetime.datetime.now())},\n        'current_iteration': {},\n        'history': []\n    }\nelse:\n    with open(session_file, 'r') as f:\n        session_json = json.load(f)\n\n# Update current iteration\niteration_obj = {\n    'iteration': iteration_counter.outputs.current_iteration,\n    'positive_prompt': generation_node.inputs.positive_prompt,\n    'negative_prompt': generation_node.inputs.negative_prompt,\n    'generated_image': generation_node.outputs.generated_image,\n    'generated_description': description_node.outputs.generated_description,\n    'analysis': analysis_node.outputs.analysis,\n    'status': {'stage': 'generation', 'complete': False}\n}\n\nsession_json['current_iteration'] = iteration_obj\nsession_json['history'].append(iteration_obj)\n\n# Save JSON\nwith open(session_file, 'w') as f:\n    json.dump(session_json, f, indent=2)",
+      "inputs": ["generation_node.outputs.generated_image", "description_node.outputs.generated_description", "analysis_node.outputs.analysis", "iteration_counter.outputs.current_iteration"],
+      "outputs": []
+    },
+    {
+      "id": "iteration_counter",
+      "type": "CounterNode",
+      "label": "Iteration Counter",
+      "inputs": ["input_max_iters"],
+      "outputs": ["current_iteration"]
+    },
+    {
+      "id": "decision_node",
+      "type": "ScriptNode",
+      "label": "Decision & Loop",
+      "script": "analysis_data = analysis_node.outputs.analysis\ncurrent_iter = iteration_counter.outputs.current_iteration\n\n# Loop condition\nif (analysis_data['errors'] or analysis_data['negative_violations'] or analysis_data['improvements']) and current_iter < input_max_iters:\n    loop_back = True\n    workflow_complete = False\nelse:\n    loop_back = False\n    workflow_complete = True",
+      "inputs": ["analysis_node.outputs.analysis", "iteration_counter.outputs.current_iteration", "input_max_iters"],
+      "outputs": ["loop_back", "workflow_complete"]
+    }
+  ],
+  "connections": [
+    ["input_goal", "generation_node", "positive_prompt"],
+    ["input_negative", "generation_node", "negative_prompt"],
+    ["generation_node", "description_node", "generated_image"],
+    ["description_node", "analysis_node", "generated_description"],
+    ["input_goal", "analysis_node", "goal_prompt"],
+    ["input_negative", "analysis_node", "goal_negative_prompt"],
+    ["input_strictness", "analysis_node", "strictness"],
+    ["analysis_node", "refinement_node", "analysis"],
+    ["generation_node", "refinement_node", "current_positive_prompt"],
+    ["generation_node", "refinement_node", "current_negative_prompt"],
+    ["refinement_node", "generation_node", "positive_prompt"],
+    ["refinement_node", "generation_node", "negative_prompt"],
+    ["generation_node", "session_save_node", "generated_image"],
+    ["description_node", "session_save_node", "generated_description"],
+    ["analysis_node", "session_save_node", "analysis"],
+    ["iteration_counter", "decision_node", "current_iteration"],
+    ["decision_node", "refinement_node", "loop_back"]
+  ]
+}
